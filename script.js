@@ -22,9 +22,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const exportBtn = document.getElementById('exportBtn');
 
     let currentTags = new Set();
+    let deleteConfirmationActive = false;
 
     // Custom Alert Function
-    function showAlert(message, duration = 3000) {
+    function showAlert(message, duration = 3000, isConfirmation = false) {
         // Remove any existing alerts
         const existingAlert = document.querySelector('.custom-alert');
         if (existingAlert) {
@@ -34,14 +35,30 @@ document.addEventListener("DOMContentLoaded", () => {
         // Create new alert
         const alert = document.createElement('div');
         alert.className = 'custom-alert';
-        alert.textContent = message;
+        
+        if (isConfirmation) {
+            alert.innerHTML = `
+                ${message}
+                <div style="margin-top: 10px;">
+                    <button class="fancy-btn primary" style="padding: 5px 10px; margin-right: 10px;" id="confirmDelete">Yes</button>
+                    <button class="fancy-btn secondary" style="padding: 5px 10px;" id="cancelDelete">No</button>
+                </div>
+            `;
+        } else {
+            alert.textContent = message;
+        }
+        
         document.body.appendChild(alert);
 
-        // Remove alert after duration
-        setTimeout(() => {
-            alert.style.animation = 'slideOut 0.3s ease forwards';
-            setTimeout(() => alert.remove(), 300);
-        }, duration);
+        if (!isConfirmation) {
+            // Remove alert after duration for non-confirmation alerts
+            setTimeout(() => {
+                alert.style.animation = 'slideOut 0.3s ease forwards';
+                setTimeout(() => alert.remove(), 300);
+            }, duration);
+        }
+
+        return alert;
     }
 
     // Theme Management
@@ -112,6 +129,29 @@ document.addEventListener("DOMContentLoaded", () => {
         showAlert("Note saved successfully!");
     }
 
+    function deleteNote(id, element) {
+        if (deleteConfirmationActive) return;
+        
+        deleteConfirmationActive = true;
+        const alert = showAlert("Are you sure you want to delete this note?", 0, true);
+        
+        const confirmBtn = alert.querySelector('#confirmDelete');
+        const cancelBtn = alert.querySelector('#cancelDelete');
+        
+        confirmBtn.addEventListener('click', () => {
+            deleteNoteFromStorage(id);
+            element.remove();
+            alert.remove();
+            deleteConfirmationActive = false;
+            showAlert("Note deleted successfully!");
+        });
+        
+        cancelBtn.addEventListener('click', () => {
+            alert.remove();
+            deleteConfirmationActive = false;
+        });
+    }
+
     function clearInputs() {
         titleInput.value = "";
         categorySelect.value = "";
@@ -161,14 +201,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
         noteItem.addEventListener("click", () => openNoteInModal(noteObj));
         notesList.insertBefore(noteItem, notesList.firstChild);
-    }
-
-    function deleteNote(id, element) {
-        if (confirm("Are you sure you want to delete this note?")) {
-            deleteNoteFromStorage(id);
-            element.remove();
-            showAlert("Note deleted successfully!");
-        }
     }
 
     // Modal Operations
@@ -224,65 +256,93 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function updateNoResultsMessage(hasResults) {
-        let noResultsMsg = document.querySelector('.no-results');
+        let noResultsMsg = document.querySelector(".no-results");
         if (!hasResults) {
             if (!noResultsMsg) {
-                noResultsMsg = document.createElement('div');
-                noResultsMsg.className = 'no-results';
-                noResultsMsg.textContent = 'No matching notes found';
+                noResultsMsg = document.createElement("div");
+                noResultsMsg.className = "no-results";
+                noResultsMsg.textContent = "No matching notes found";
                 notesList.appendChild(noResultsMsg);
             }
-        } else if (noResultsMsg) {
-            noResultsMsg.remove();
+        } else {
+            if (noResultsMsg) noResultsMsg.remove();
         }
     }
 
-    // Export Functionality
-    function exportNotes() {
-        const notes = JSON.parse(localStorage.getItem("notes")) || [];
-        const dataStr = "data:text/json;charset=utf-8," + 
-            encodeURIComponent(JSON.stringify(notes, null, 2));
-        const downloadAnchorNode = document.createElement('a');
-        downloadAnchorNode.setAttribute("href", dataStr);
-        downloadAnchorNode.setAttribute("download", "snippetsync_backup.json");
-        document.body.appendChild(downloadAnchorNode);
-        downloadAnchorNode.click();
-        downloadAnchorNode.remove();
-        showAlert("Notes exported successfully!");
-    }
-
-    // Utility Functions
+    // Helper Functions
     function escapeHtml(unsafe) {
-        return unsafe
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#039;");
+        const map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;',
+            "`": '&#x60;'
+        };
+        return unsafe.replace(/[&<>"'`]/g, (match) => map[match]);
     }
 
-    // Event Listeners
-    saveButton.addEventListener("click", saveNote);
-    clearButton.addEventListener("click", clearInputs);
-    copyButton.addEventListener("click", () => {
-        pasteArea.select();
-        document.execCommand("copy");
-        showAlert("Copied to clipboard!");
-    });
-    closeModalBtn.addEventListener("click", () => (modal.style.display = "none"));
-    searchInput.addEventListener("input", filterNotes);
-    filterCategory.addEventListener("change", filterNotes);
-    searchOptions.forEach(option => 
-        option.addEventListener('click', function() {
-            searchOptions.forEach(opt => opt.classList.remove('active'));
-            this.classList.add('active');
-            filterNotes();
-        })
-    );
-    exportBtn.addEventListener("click", exportNotes);
+    // Populate Existing Notes
+    function populateNotes() {
+        const notes = JSON.parse(localStorage.getItem("notes")) || [];
+        notes.forEach(note => addNoteToDOM(note));
+    }
 
     // Initialize
     initializeTheme();
-    const savedNotes = JSON.parse(localStorage.getItem("notes")) || [];
-    savedNotes.forEach(note => addNoteToDOM(note));
+    populateNotes();
+
+    // Event Listeners
+    saveButton.addEventListener("click", saveNote);
+    searchInput.addEventListener("input", filterNotes);
+    filterCategory.addEventListener("change", filterNotes);
+    searchOptions.forEach(option => {
+        option.addEventListener('click', () => {
+            searchOptions.forEach(o => o.classList.remove('active'));
+            option.classList.add('active');
+            filterNotes();
+        });
+    });
+    closeModalBtn.addEventListener("click", () => modal.style.display = "none");
+
+    // Add Export Functionality from CODE2
+
+    function convertNotesToText(notes) {
+        if (!notes || notes.length === 0) return "No notes found";
+        
+        return notes.map(note => {
+            const date = new Date(note.timestamp).toLocaleDateString();
+            const separator = "=".repeat(50);
+            
+            return `${separator}
+Title: ${note.title}
+Date: ${date}
+Category: ${note.category || "None"}
+Tags: ${note.tags.length ? note.tags.join(", ") : "None"}
+
+${note.content}
+${separator}
+
+`;
+        }).join("\n");
+    }
+
+    function exportNotes() {
+        const notes = JSON.parse(localStorage.getItem("notes")) || [];
+        const textContent = convertNotesToText(notes);
+        const blob = new Blob([textContent], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        
+        const downloadAnchorNode = document.createElement('a');
+        downloadAnchorNode.setAttribute("href", url);
+        downloadAnchorNode.setAttribute("download", "snippetsync_notes.txt");
+        document.body.appendChild(downloadAnchorNode);
+        downloadAnchorNode.click();
+        downloadAnchorNode.remove();
+        URL.revokeObjectURL(url);
+        
+        showAlert("Notes exported successfully!");
+    }
+
+    exportBtn.addEventListener("click", exportNotes);
 });
